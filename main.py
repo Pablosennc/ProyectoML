@@ -30,6 +30,7 @@ from evaluation.visualizer import HDVisualizer
 from models.base import BaseModel
 from models.supervised.prototype_models import PrototypeModel
 from models.supervised.spline_models import SplineModel
+from models.unsupervised.emeans_engine import EMeansEngine
 from models.unsupervised.kmeans_engine import KMeansEngine
 
 
@@ -366,41 +367,43 @@ def run_unsupervised_pipeline(
     random_state: int,
     visualizer: HDVisualizer,
     reports_dir: Path,
+    clusterer: str = "kmeans",
 ) -> dict[str, Any]:
-    """Ejecuta el pipeline no supervisado K-Means con auditoría multi-criterio y PCA 2D."""
+    """Ejecuta una auditoría de agrupamiento con PCA 2D."""
     preprocessor = AdaptivePreprocessor()
     X_proc = preprocessor.fit_transform_train(df)
 
-    engine = KMeansEngine(
-        k_range=k_range,
-        selection_criterion=k_criterion,
-        init=k_init,
-        n_init=10,
-        random_state=random_state,
-    ).fit(X_proc)
+    if clusterer == "emeans":
+        engine = EMeansEngine(k_range=k_range, selection_criterion=k_criterion,
+                              random_state=random_state)
+    else:
+        engine = KMeansEngine(k_range=k_range, selection_criterion=k_criterion,
+                              random_state=random_state, init=k_init, n_init=10)
+    engine.fit(X_proc)
+    prefix = engine.report_prefix
 
     audit_report = engine.get_audit_report()
     km_figs = visualizer.plot_kmeans_audit(audit_report)
 
     models_dir = reports_dir / "models"
     models_dir.mkdir(parents=True, exist_ok=True)
-    model_path = engine.save(models_dir / "kmeans_engine.pkl")
+    model_path = engine.save(models_dir / f"{prefix}_engine.pkl")
     _ = BaseModel.load(model_path)
 
     joblib.dump({"preprocessor": preprocessor}, model_path.with_suffix(".preprocessing.pkl"))
-    metrics_csv = reports_dir / "kmeans_k_sweep_metrics.csv"
+    metrics_csv = reports_dir / f"{prefix}_k_sweep_metrics.csv"
     audit_report["metrics_table"].to_csv(metrics_csv, index=False)
 
     df_segmented = df.copy()
     df_segmented["cluster_id"] = audit_report["labels"]
     df_segmented["silhouette_sample"] = audit_report["sample_silhouettes"]
-    seg_csv = reports_dir / "kmeans_segmented_dataset.csv"
+    seg_csv = reports_dir / f"{prefix}_segmented_dataset.csv"
     df_segmented.to_csv(seg_csv, index=False)
 
     return {
         "mode": "unsupervised",
-        "algorithm": "K-Means",
-        "init": k_init,
+        "algorithm": engine.algorithm_name,
+        "init": k_init if clusterer == "kmeans" else "faiss-default",
         "optimal_k": int(audit_report["optimal_k"]),
         "selection_criterion": audit_report["selection_criterion"],
         "avg_silhouette": float(audit_report["avg_silhouette"]),
@@ -451,7 +454,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=int,
         default=[2, 8],
         metavar=("K_MIN", "K_MAX"),
-        help="Rango de clústeres K a auditar en K-Means.",
+        help="Rango de números de clústeres que se evaluarán.",
     )
     parser.add_argument(
         "--k-criterion",
@@ -460,7 +463,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default="elbow",
         help="Criterio automático de selección de K óptimo.",
     )
-    parser.add_argument("--k-init", choices=["random", "k-means++"], default="k-means++")
+    parser.add_argument("--clusterer", choices=["kmeans", "emeans"], default="kmeans",
+                        help="Algoritmo no supervisado (predeterminado: kmeans).")
+    parser.add_argument("--k-init", choices=["random", "k-means++"],
+                        help="Inicialización solo para K-Means (predeterminado: k-means++).")
     parser.add_argument("--cv-folds", type=int, default=5, help="Número de folds para validación cruzada.")
     parser.add_argument("--test-size", type=float, default=0.2, help="Proporción de test (0 < test_size < 1).")
     parser.add_argument("--output-dir", type=str, default="reports", help="Directorio raíz de salida.")
@@ -475,6 +481,8 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
         category=UserWarning,
     )
     args = parse_args(argv)
+    if args.clusterer == "emeans" and args.k_init is not None:
+        raise ValueError("--k-init solo se admite con --clusterer kmeans.")
     reports_dir = Path(args.output_dir)
     reports_dir.mkdir(parents=True, exist_ok=True)
     figures_dir = reports_dir / "figures"
@@ -489,7 +497,8 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
 
     if args.mode == "auto":
         if target_col is None:
-            warnings.warn("No se detectó una columna objetivo inequívoca. Se ejecutará K-Means; use --target para indicar el objetivo.")
+            algorithm = EMeansEngine.algorithm_name if args.clusterer == "emeans" else KMeansEngine.algorithm_name
+            warnings.warn(f"No se detectó una columna objetivo inequívoca. Se ejecutará {algorithm}; use --target para indicar el objetivo.")
         resolved_mode = "supervised" if target_col is not None else "unsupervised"
     else:
         resolved_mode = args.mode
@@ -519,7 +528,8 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
             df=X_unsup,
             k_range=(args.k_range[0], args.k_range[1]),
             k_criterion=args.k_criterion,
-            k_init=args.k_init,
+            k_init=args.k_init or "k-means++",
+            clusterer=args.clusterer,
             random_state=args.random_state,
             visualizer=visualizer,
             reports_dir=reports_dir,
@@ -546,6 +556,7 @@ def main(argv: list[str] | None = None) -> dict[str, Any]:
         print(f"Mejor modelo      : {pipeline_summary['best_model']}")
         print(f"Tabla comparativa : {pipeline_summary['comparison_csv']}")
     else:
+        print(f"Algoritmo         : {pipeline_summary['algorithm']}")
         print(f"K óptimo (K*)     : {pipeline_summary['optimal_k']} ({pipeline_summary['selection_criterion']})")
         print(f"Silueta promedio  : {pipeline_summary['avg_silhouette']:.4f}")
         print(f"Dataset segmentado: {pipeline_summary['segmented_dataset_csv']}")

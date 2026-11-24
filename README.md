@@ -33,6 +33,31 @@ Fisher, DOI 10.24432/C56C76). Wine contiene 178 vinos con 13 medidas químicas
 (UCI, Aeberhard y Forina, DOI 10.24432/C5PC7J). Los archivos proceden de los
 datasets de ejemplo de scikit-learn. En Wine se omitió el cultivar.
 
+## e-means de Meta FAIR (opcional)
+
+K-Means sigue siendo el algoritmo predeterminado. Para probar e-means en CPU,
+instala la dependencia adicional en el mismo entorno y usa la misma tabla de vinos.
+
+```bash
+python -m pip install -r requirements-emeans.txt
+python main.py --data data/wine_sin_etiquetas.tsv --clusterer emeans --output-dir reports/wine-emeans
+```
+
+El motor usa `NumpyEmeans` de Faiss con cinco épocas e inicialización
+propia de Faiss. Usa `--k-init` para configurar únicamente K-Means.
+Ambos motores recorren el mismo rango de K y reportan inercia, silueta,
+Calinski-Harabasz, Davies-Bouldin y PCA. Los CSV, modelos y figuras específicos
+de e-means llevan el prefijo `emeans_`. Emplea directorios de salida separados
+para conservar también el resumen JSON y EDA de cada corrida.
+
+e-means actualiza los centroides con medias móviles exponenciales de las
+estadísticas de cada minilote. La publicación evalúa las mejoras de rendimiento
+principalmente con grandes colecciones de embeddings. La ejecución con Wine
+sirve para comparar el resultado del agrupamiento en una tabla pequeña.
+
+[Artículo de Meta FAIR](https://arxiv.org/abs/2611.09501) ·
+[Implementación oficial en Faiss](https://github.com/facebookresearch/faiss/tree/v1.16.0/contrib/e_means)
+
 ## Datos propios
 
 ```bash
