@@ -1,6 +1,7 @@
 from __future__ import annotations
 import numpy as np
 import pandas as pd
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor, export_text
 
 from ..base import BaseModel
@@ -13,16 +14,20 @@ class CARTModel(BaseModel):
     e importancia de características basada en reducción de impureza.
     """
 
-    def __init__(self, task_type: str = "classification", **kwargs):
+    def __init__(self, task_type: str = "classification", algorithm: str = "cart", **kwargs):
         super().__init__(**kwargs)
         self.task_type = task_type.lower()
         self.feature_names: list[str] | None = None
         self._is_fitted: bool = False
 
-        if self.task_type == "classification":
-            self.model = DecisionTreeClassifier(**self.hyperparameters)
-        elif self.task_type == "regression":
-            self.model = DecisionTreeRegressor(**self.hyperparameters)
+        estimators = {
+            "cart": {"classification": DecisionTreeClassifier, "regression": DecisionTreeRegressor},
+            "random_forest": {"classification": RandomForestClassifier, "regression": RandomForestRegressor},
+        }
+        if algorithm not in estimators:
+            raise ValueError(f"Algoritmo de árboles desconocido: {algorithm}")
+        if self.task_type in estimators[algorithm]:
+            self.model = estimators[algorithm][self.task_type](**self.hyperparameters)
         else:
             raise ValueError("El parámetro task_type debe ser 'classification' o 'regression'.")
 

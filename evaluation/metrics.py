@@ -1,4 +1,6 @@
 from __future__ import annotations
+from core.preprocessor import AdaptivePreprocessor
+
 import copy
 import warnings
 import numpy as np
@@ -245,6 +247,7 @@ class ModelEvaluator:
         task_type: str = "classification",
         k_folds: int = 5,
         random_state: int = 42,
+        scale: bool | None = None,
     ) -> dict:
         """
         Ejecuta validación cruzada K-Fold clonando mediante deepcopy cualquier modelo
@@ -257,6 +260,11 @@ class ModelEvaluator:
         for fold_idx, (train_idx, val_idx) in enumerate(splitter.split(X, y_series), start=1):
             X_tr, X_val = X.iloc[train_idx], X.iloc[val_idx]
             y_tr, y_val = y_series.iloc[train_idx], y_series.iloc[val_idx]
+
+            if scale is not None:
+                prep = AdaptivePreprocessor()
+                X_tr = prep.fit_transform_train(X_tr, scale=scale)
+                X_val = prep.transform_test(X_val)
 
             model_clone = copy.deepcopy(model_template)
             model_clone.fit(X_tr, y_tr)
@@ -304,6 +312,7 @@ class ModelEvaluator:
         train_fractions: tuple[float, ...] = (0.2, 0.4, 0.6, 0.8, 1.0),
         k_folds: int = 5,
         random_state: int = 42,
+        scale: bool | None = None,
     ) -> dict:
         """
         Calcula curvas de aprendizaje (Error de entrenamiento vs. Error de validación)
@@ -345,6 +354,10 @@ class ModelEvaluator:
                 if task_type == "classification" and y_tr.nunique() < 2:
                     continue
 
+                if scale is not None:
+                    prep = AdaptivePreprocessor()
+                    X_tr = prep.fit_transform_train(X_tr, scale=scale)
+                    X_val = prep.transform_test(X_val)
                 model_clone = copy.deepcopy(model_template)
                 model_clone.fit(X_tr, y_tr)
 

@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+from scipy.stats import t
 
 
 class HDVisualizer:
@@ -95,6 +96,31 @@ class HDVisualizer:
             y=1.02,
         )
         return self._save_figure(fig, filename)
+
+    def plot_decision_slice(self, model, preprocessor, X, y, model_name, class_names):
+        """Dibuja un corte en dos predictores y fija el resto en valores típicos."""
+        cols = [c for c in preprocessor.numeric_cols_ if X[c].nunique() > 1]
+        if len(cols) < 2:
+            return None
+        a, b = cols[:2]
+        clean = X[[a, b]].replace([np.inf, -np.inf], np.nan)
+        u, v = np.meshgrid(*(np.linspace(clean[c].min(), clean[c].max(), 48) for c in (a, b)))
+        reference = {}
+        for col in preprocessor.selected_features_:
+            series = X[col].replace([np.inf, -np.inf], np.nan)
+            reference[col] = series.median() if col in preprocessor.numeric_cols_ else series.mode().iloc[0]
+        grid = pd.DataFrame(reference, index=np.arange(u.size))
+        grid[a], grid[b] = u.ravel(), v.ravel()
+        z = model.predict(preprocessor.transform_test(grid)).reshape(u.shape)
+        levels = np.arange(len(class_names) + 1) - 0.5
+        fig, ax = plt.subplots(figsize=(7, 5))
+        contour = ax.contourf(u, v, z, levels=levels, cmap="viridis", alpha=0.35)
+        ax.scatter(clean[a], clean[b], c=y, cmap="viridis", vmin=levels[0],
+                   vmax=levels[-1], edgecolors="white", linewidths=0.4, s=18)
+        bar = fig.colorbar(contour, ax=ax, ticks=np.arange(len(class_names)))
+        bar.ax.set_yticklabels(class_names)
+        ax.set(xlabel=a, ylabel=b, title=f"{model_name} · Corte de la superficie de decisión")
+        return self._save_figure(fig, f"decision_{model_name.lower()}.png")
 
     def plot_confusion_matrix(
         self,
@@ -244,8 +270,7 @@ class HDVisualizer:
         filename: str | None = None,
     ) -> Path:
         """
-        Grafica valores Reales vs. Predichos con banda de confianza al 95% (±1.96 sigma)
-        junto al gráfico de dispersión de residuales para auditar homocedasticidad.
+        Grafica calibración, dispersión de residuos y su distribución.
         """
         y_true = eval_result["y_true"]
         y_pred = eval_result["y_pred"]
@@ -253,7 +278,7 @@ class HDVisualizer:
         band = eval_result["confidence_band_half_width"]
         m = eval_result["metrics"]
 
-        fig, axes = plt.subplots(1, 2, figsize=(15, 6))
+        fig, axes = plt.subplots(1, 3, figsize=(17, 5))
 
         axes[0].scatter(
             y_true,
@@ -269,14 +294,23 @@ class HDVisualizer:
         grid = np.linspace(min_val, max_val, 200)
 
         axes[0].plot(grid, grid, "r--", lw=2, label="Ajuste Ideal ($y = \\hat{y}$)")
-        axes[0].fill_between(
-            grid,
-            grid - band,
-            grid + band,
-            color="red",
-            alpha=0.14,
-            label=f"Banda 95% ($\\pm {band:.2f}$)",
-        )
+        n = len(y_true)
+        centered = y_true - y_true.mean()
+        sxx = centered @ centered
+        if n > 2 and sxx > 0:
+            slope = centered @ (y_pred - y_pred.mean()) / sxx
+            fitted = y_pred.mean() + slope * centered
+            calibration_grid = np.linspace(y_true.min(), y_true.max(), 200)
+            center = y_pred.mean() + slope * (calibration_grid - y_true.mean())
+            sigma = np.linalg.norm(y_pred - fitted) / np.sqrt(n - 2)
+            half_width = t.ppf(0.975, n - 2) * sigma * np.sqrt(
+                1 / n + (calibration_grid - y_true.mean()) ** 2 / sxx
+            )
+            axes[0].plot(calibration_grid, center, color="#22577a", label="Calibración lineal")
+            axes[0].fill_between(
+                calibration_grid, center - half_width, center + half_width,
+                color="#22577a", alpha=0.2, label="IC puntual 95% de la media",
+            )
         axes[0].set_xlabel("Valor Real ($y$)", fontweight="bold")
         axes[0].set_ylabel("Valor Predicho ($\\hat{y}$)", fontweight="bold")
         axes[0].set_title(
@@ -300,6 +334,10 @@ class HDVisualizer:
         axes[1].set_xlabel("Valor Predicho ($\\hat{y}$)", fontweight="bold")
         axes[1].set_ylabel("Residual ($y - \\hat{y}$)", fontweight="bold")
         axes[1].set_title(f"Diagnóstico de Residuales — {model_name}", fontweight="bold")
+
+        axes[2].hist(residuals, bins="auto", color="#2ca02c", edgecolor="white")
+        axes[2].axvline(0, color="red", linestyle="--")
+        axes[2].set(xlabel="Residual", ylabel="Frecuencia", title="Distribución de residuos")
 
         out_name = filename or f"regression_{model_name.lower().replace(' ', '_')}.png"
         return self._save_figure(fig, out_name)
