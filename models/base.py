@@ -33,6 +33,13 @@ class BaseModel(ABC):
         """Genera probabilidades posteriores por clase (si el algoritmo lo soporta)."""
         pass
 
+    def score(self, X: pd.DataFrame, y: pd.Series | np.ndarray) -> float:
+        """Calcula accuracy en clasificación y R² en regresión."""
+        from sklearn.metrics import accuracy_score, r2_score
+
+        metric = accuracy_score if getattr(self, "task_type", None) == "classification" else r2_score
+        return float(metric(y, self.predict(X)))
+
     def save(self, filepath: str | Path) -> Path:
         """Serializa la instancia completa del modelo en disco creando directorios padre."""
         out_path = Path(filepath)

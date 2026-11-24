@@ -1,0 +1,16 @@
+digraph {
+  graph [rankdir=BT, bgcolor="white", pad=".2", nodesep=".2", fontname="DejaVu Sans"];
+  node [shape=record, style=filled, fillcolor="#edf5f7", color="#52727f", fontname="DejaVu Sans", fontsize=11];
+  edge [color="#47636e", fontname="DejaVu Sans", fontsize=9];
+  BaseModel [label="{«abstract» BaseModel|fit()\lpredict()\lpredict_proba()\lscore()\lsave() / load()\l}"];
+  DataLoader [label="{DataLoader|load_data()\lresolve_target()\l}"];
+  AutomatedEDA [label="{AutomatedEDA|calculate_matrices()\lget_quality_diagnostics()\l}"];
+  AdaptivePreprocessor [label="{AdaptivePreprocessor|fit_transform_train()\ltransform_test()\l}"];
+  ModelEvaluator [label="{ModelEvaluator|cross_validate()\lcompute_learning_curve()\l}"];
+  HDVisualizer [label="{HDVisualizer|plot_eda_matrices()\lplot_decision_slice()\lplot_kmeans_audit()\l}"];
+  CLI [label="{«module» main|main()\lrun_supervised_pipeline()\lrun_unsupervised_pipeline()\l}"];
+  KMeansEngine [label="{KMeansEngine|get_audit_report()\l}"];
+  {CARTModel RegularizedLinearModel SplineModel PrototypeModel KMeansEngine} -> BaseModel [arrowhead=empty];
+  CLI -> {DataLoader AutomatedEDA AdaptivePreprocessor ModelEvaluator HDVisualizer KMeansEngine} [style=dashed, arrowhead=open];
+  ModelEvaluator -> {AdaptivePreprocessor BaseModel} [style=dashed, arrowhead=open];
+}

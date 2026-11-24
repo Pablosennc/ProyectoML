@@ -215,6 +215,14 @@ class SplineModel(BaseModel):
             self._is_fitted = True
             return self
 
+        if (
+            self.algorithm == "gam"
+            and self.task_type == "classification"
+            and len(self.classes_) > 2
+            and not self._using_fallback_gam
+        ):
+            self._init_fallback_gam()
+
         if self.algorithm == "gam" and not self._using_fallback_gam:
             try:
                 self.model.fit(X_df, y_array)

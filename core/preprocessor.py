@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from sklearn.impute import SimpleImputer
 from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 
 class AdaptivePreprocessor:
@@ -17,11 +17,12 @@ class AdaptivePreprocessor:
 
     def __init__(
         self,
-        df: pd.DataFrame,
+        df: pd.DataFrame | None = None,
         target_col: str | None = None,
         max_cardinality: int = 20,
     ):
-        self.df = df.copy()
+        self.df = df.copy() if df is not None else None
+        self.encoder: OneHotEncoder | None = None
         self.target_col = target_col
         self.max_cardinality = max_cardinality
 
@@ -43,7 +44,7 @@ class AdaptivePreprocessor:
         stratify: bool = False,
     ) -> tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series]:
         """Divide en entrenamiento y prueba descartando filas con target nulo."""
-        if self.target_col is None or self.target_col not in self.df.columns:
+        if self.df is None or self.target_col not in self.df.columns:
             raise ValueError("Debe especificar un target_col válido para dividir los datos.")
 
         clean_df = self.df.dropna(subset=[self.target_col]).reset_index(drop=True)
@@ -68,31 +69,24 @@ class AdaptivePreprocessor:
         """Descarta columnas vacías, constantes, IDs únicos y texto de alta cardinalidad."""
         n_rows = max(len(X), 1)
         keep_cols = []
-        dropped_cols = []
 
         for col in X.columns:
             series = X[col].replace([np.inf, -np.inf], np.nan)
             n_unique = series.nunique(dropna=True)
 
             if n_unique <= 1:
-                dropped_cols.append(col)
                 continue
 
             col_lower = str(col).strip().lower()
             is_id_name = col_lower in {"id", "index", "unnamed: 0", "customer_id", "user_id"}
             if is_id_name and n_unique >= 0.95 * n_rows:
-                dropped_cols.append(col)
                 continue
 
             if not pd.api.types.is_numeric_dtype(series) and not pd.api.types.is_bool_dtype(series):
-                if n_unique > self.max_cardinality or (n_unique / n_rows) > 0.5:
-                    dropped_cols.append(col)
+                if n_unique > self.max_cardinality:
                     continue
 
             keep_cols.append(col)
-
-        if dropped_cols:
-            print(f"[PREPROCESSOR] Columnas no informativas descartadas: {dropped_cols}")
 
         if not keep_cols:
             raise ValueError("No quedaron columnas predictoras válidas tras el filtrado automático.")
@@ -132,14 +126,13 @@ class AdaptivePreprocessor:
             blocks.append(pd.DataFrame(num_arr, columns=num_and_bool_cols, index=X_clean.index))
 
         if self.categorical_cols_:
-            cat_data = X_clean[self.categorical_cols_].astype(object)
+            cat_data = X_clean[self.categorical_cols_].astype("string").astype(object).fillna(np.nan)
             self.cat_imputer = SimpleImputer(strategy="most_frequent")
             cat_arr = self.cat_imputer.fit_transform(cat_data)
-            cat_df = pd.DataFrame(cat_arr, columns=self.categorical_cols_, index=X_clean.index)
-            cat_encoded = pd.get_dummies(
-                cat_df, columns=self.categorical_cols_, drop_first=True, dtype=float
-            )
-            blocks.append(cat_encoded)
+            self.encoder = OneHotEncoder(handle_unknown="ignore", sparse_output=False)
+            encoded = self.encoder.fit_transform(cat_arr)
+            names = self.encoder.get_feature_names_out(self.categorical_cols_)
+            blocks.append(pd.DataFrame(encoded, columns=names, index=X_clean.index))
 
         X_out = pd.concat(blocks, axis=1) if blocks else pd.DataFrame(index=X_clean.index)
         X_out = X_out.replace([np.inf, -np.inf], np.nan).fillna(0.0)
@@ -163,13 +156,11 @@ class AdaptivePreprocessor:
             blocks.append(pd.DataFrame(num_arr, columns=num_and_bool_cols, index=X_sub.index))
 
         if self.categorical_cols_ and self.cat_imputer is not None:
-            cat_data = X_sub[self.categorical_cols_].astype(object)
+            cat_data = X_sub[self.categorical_cols_].astype("string").astype(object).fillna(np.nan)
             cat_arr = self.cat_imputer.transform(cat_data)
-            cat_df = pd.DataFrame(cat_arr, columns=self.categorical_cols_, index=X_sub.index)
-            cat_encoded = pd.get_dummies(
-                cat_df, columns=self.categorical_cols_, drop_first=True, dtype=float
-            )
-            blocks.append(cat_encoded)
+            encoded = self.encoder.transform(cat_arr)
+            names = self.encoder.get_feature_names_out(self.categorical_cols_)
+            blocks.append(pd.DataFrame(encoded, columns=names, index=X_sub.index))
 
         X_out = pd.concat(blocks, axis=1) if blocks else pd.DataFrame(index=X_sub.index)
         X_out = X_out.reindex(columns=self.encoded_columns_, fill_value=0.0)

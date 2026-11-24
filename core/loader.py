@@ -84,24 +84,38 @@ class DataLoader:
         df.columns = [str(col).strip() for col in df.columns]
         df = df.dropna(how="all").dropna(axis=1, how="all").reset_index(drop=True)
 
-        if df.empty or df.shape[1] < 2:
-            raise ValueError("El dataset cargado está vacío o contiene menos de 2 columnas válidas.")
+        if df.empty or df.shape[1] < 1:
+            raise ValueError("El dataset cargado está vacío.")
+
+        if not df.columns.is_unique:
+            raise ValueError("Los nombres de columna deben ser únicos.")
 
         self.df = df
         return df
 
     def detect_task_and_target(
         self, target_col: str | None = None, df: pd.DataFrame | None = None
-    ) -> tuple[str, str]:
-        """
-        Identifica la columna objetivo (por defecto la última columna si no se especifica)
-        e infiere si el problema corresponde a 'classification' o 'regression'.
-        """
+    ) -> tuple[str | None, str | None]:
+        """Detecta el objetivo en una tabla explícita o previamente cargada."""
         data = df if df is not None else self.df
         if data is None:
             raise RuntimeError("Debe ejecutar load_data() antes de detectar tarea y objetivo.")
+        return self.resolve_target(data, target_col)
 
-        resolved_target = target_col if target_col is not None else str(data.columns[-1])
+    @staticmethod
+    def resolve_target(
+        df: pd.DataFrame, target_col: str | None = None
+    ) -> tuple[str | None, str | None]:
+        """Detecta un objetivo por nombre semántico o acepta uno explícito."""
+        resolved_target = target_col
+        if resolved_target is None:
+            aliases = {"target", "label", "class", "clase", "objetivo", "etiqueta", "y"}
+            candidates = [c for c in df.columns if c.casefold() in aliases
+                          and df[c].nunique(dropna=True) > 1]
+            if len(candidates) != 1:
+                return None, None
+            resolved_target = candidates[0]
+        data = df
         if resolved_target not in data.columns:
             raise ValueError(
                 f"La columna objetivo '{resolved_target}' no existe. "

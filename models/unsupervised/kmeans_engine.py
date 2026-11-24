@@ -233,6 +233,10 @@ class KMeansEngine(BaseModel):
         X_np = self._align_features(X)
         return self.model.predict(X_np)
 
+    def score(self, X: pd.DataFrame, y=None) -> float:
+        """Retorna el negativo de la inercia del modelo sobre X."""
+        return float(self.model.score(self._align_features(X)))
+
     def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
         """K-Means realiza particionamiento duro y no estima probabilidades posteriores nativas."""
         raise NotImplementedError(
