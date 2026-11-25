@@ -375,10 +375,12 @@ class HDVisualizer:
 
     def plot_kmeans_audit(self, audit_report: dict) -> dict[str, Path]:
         """
-        Genera los dos paneles diagnósticos del motor no supervisado K-Means:
+        Genera los dos paneles diagnósticos del motor de agrupamiento:
         1. Barrido de K: Inercia (Codo), Silueta promedio, Calinski-Harabasz y Davies-Bouldin.
         2. Diagrama de Siluetas individuales por clúster + Proyección PCA 2D (o 1D) con centroides.
         """
+        algorithm = audit_report.get("algorithm", "K-Means")
+        prefix = audit_report.get("report_prefix", "kmeans")
         df_m = audit_report["metrics_table"]
         opt_k = int(audit_report["optimal_k"])
         k_vals = df_m["k"]
@@ -405,12 +407,12 @@ class HDVisualizer:
             ax.legend(loc="best")
 
         fig1.suptitle(
-            "Auditoría Multi-Criterio para Selección de $K$",
+            f"{algorithm} · Auditoría para selección de $K$",
             fontsize=14,
             fontweight="bold",
             y=1.01,
         )
-        path_sweep = self._save_figure(fig1, "kmeans_k_selection_sweep.png")
+        path_sweep = self._save_figure(fig1, f"{prefix}_k_selection_sweep.png")
 
         labels = audit_report["labels"]
         sample_sil = audit_report["sample_silhouettes"]
@@ -488,11 +490,11 @@ class HDVisualizer:
             fontweight="bold",
         )
         axes2[1].set_title(
-            f"Segmentación K-Means en Subespacio PCA ({'2D' if is_2d else '1D'}, $K={opt_k}$)",
+            f"Segmentación {algorithm} en Subespacio PCA ({'2D' if is_2d else '1D'}, $K={opt_k}$)",
             fontweight="bold",
         )
         axes2[1].legend(loc="best")
 
-        path_clusters = self._save_figure(fig2, "kmeans_silhouette_and_pca.png")
+        path_clusters = self._save_figure(fig2, f"{prefix}_silhouette_and_pca.png")
 
         return {"k_selection": path_sweep, "silhouette_pca": path_clusters}

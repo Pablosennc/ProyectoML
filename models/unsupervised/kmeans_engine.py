@@ -22,6 +22,9 @@ class KMeansEngine(BaseModel):
     individuales/globales, índices Calinski-Harabasz y Davies-Bouldin, y proyección PCA 2D.
     """
 
+    algorithm_name = "K-Means"
+    report_prefix = "kmeans"
+
     _KMEANS_ALLOWED_PARAMS = {
         "max_iter",
         "tol",
@@ -124,6 +127,14 @@ class KMeansEngine(BaseModel):
             )
         return arr
 
+    def _make_estimator(self, k: int):
+        options = {
+            key: value for key, value in self.hyperparameters.items()
+            if key in self._KMEANS_ALLOWED_PARAMS
+        }
+        return KMeans(n_clusters=k, init=self.init, n_init=self.n_init,
+                      random_state=self.random_state, **options)
+
     def fit(
         self, X: pd.DataFrame, y: pd.Series | np.ndarray | None = None
     ) -> KMeansEngine:
@@ -154,21 +165,11 @@ class KMeansEngine(BaseModel):
                 f"Dataset pequeño (n={n_samples}): se ajusta k_max automáticamente de {k_max} a {effective_k_max}."
             )
 
-        km_extra = {
-            k: v for k, v in self.hyperparameters.items() if k in self._KMEANS_ALLOWED_PARAMS
-        }
-
         records = []
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             for k in range(k_min, effective_k_max + 1):
-                km = KMeans(
-                    n_clusters=k,
-                    init=self.init,
-                    n_init=self.n_init,
-                    random_state=self.random_state,
-                    **km_extra,
-                )
+                km = self._make_estimator(k)
                 labels = km.fit_predict(X_np)
 
                 # Si hay filas duplicadas y colapsan en menos de 2 clústeres, detener barrido
@@ -205,13 +206,7 @@ class KMeansEngine(BaseModel):
 
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            self.model = KMeans(
-                n_clusters=self.optimal_k_,
-                init=self.init,
-                n_init=self.n_init,
-                random_state=self.random_state,
-                **km_extra,
-            )
+            self.model = self._make_estimator(self.optimal_k_)
             self.labels_ = self.model.fit_predict(X_np)
 
         self.centroids_ = self.model.cluster_centers_
@@ -249,6 +244,8 @@ class KMeansEngine(BaseModel):
             raise RuntimeError("Debe ejecutar fit() antes de solicitar el reporte de auditoría.")
 
         return {
+            "algorithm": self.algorithm_name,
+            "report_prefix": self.report_prefix,
             "optimal_k": self.optimal_k_,
             "selection_criterion": self.selection_criterion,
             "metrics_table": self.audit_results_,
