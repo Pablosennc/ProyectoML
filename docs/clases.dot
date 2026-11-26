@@ -9,8 +9,10 @@ digraph {
   ModelEvaluator [label="{ModelEvaluator|cross_validate()\lcompute_learning_curve()\l}"];
   HDVisualizer [label="{HDVisualizer|plot_eda_matrices()\lplot_decision_slice()\lplot_kmeans_audit()\l}"];
   CLI [label="{«module» main|main()\lrun_supervised_pipeline()\lrun_unsupervised_pipeline()\l}"];
+  EMeansEngine [label="{EMeansEngine|_make_estimator()\l}"];
   KMeansEngine [label="{KMeansEngine|get_audit_report()\l}"];
   {CARTModel RegularizedLinearModel SplineModel PrototypeModel KMeansEngine} -> BaseModel [arrowhead=empty];
-  CLI -> {DataLoader AutomatedEDA AdaptivePreprocessor ModelEvaluator HDVisualizer KMeansEngine} [style=dashed, arrowhead=open];
+  EMeansEngine -> KMeansEngine [arrowhead=empty];
+  CLI -> {DataLoader AutomatedEDA AdaptivePreprocessor ModelEvaluator HDVisualizer KMeansEngine EMeansEngine} [style=dashed, arrowhead=open];
   ModelEvaluator -> {AdaptivePreprocessor BaseModel} [style=dashed, arrowhead=open];
 }
